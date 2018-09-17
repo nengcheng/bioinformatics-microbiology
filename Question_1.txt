@@ -1,0 +1,93 @@
+Question 1
+
+#download the mitochondrion protein database
+
+wget ftp://ftp.ncbi.nlm.nih.gov/refseq/release/mitochondrion/mitochondrion.1.protein.faa.gz
+wget ftp://ftp.ncbi.nlm.nih.gov/refseq/release/mitochondrion/mitochondrion.2.protein.faa.gz
+# extract the gz files
+gunzip  mitochondrion.*.gz
+#merge the mitochonrion file
+cat mitochondrion.1.protein.faa mitochondrion.2.protein.faa >mitofull.faa
+#create the mitofull database
+/home/chen0012/programs/ncbi-blast-2.7.1+/bin/makeblastdb -in mitofull.faa -dbtype 'prot'
+
+#use prodigal for this organelle, we are able to identify 11 proteins, (from >UnkSp1_1 to >UnkSp1_11)
+ /home/chen0012/programs/prodigal/prodigal -p meta  -i Question1.fna -a Q1_protein.faa -d Q1.ffn -o Q1.gff -f gff 1>Q1_pro.out 2>Q1_pro.err
+
+# use blastp for the 11 proteins against the mitofull database to predict gene categories and possible organism it belongs to , we are able to find 5000 matches for 10 proteins: from UnkSp1_2 to UnkSp1_11, 500 per sequence.
+
+ /home/chen0012/programs/ncbi-blast-2.7.1+/bin/blastp -query Q1_protein.faa -db /home/chen0012/data/mitofull.faa -out unksp_blastp_out.txt -evalue 1e-10 -outfmt '6 salltitles qseqid sseqid qlen slen qstart qend sstart send length nident positive mismatch gaps pident bitscore evalue'
+ 
+ # transfer the mitfull.faa to single line format 
+ bash  /home/chen0012/scratch/bacteria/Convert_to_Single.sh mitofull.faa >single.mitofull.faa &
+ 
+ # Now we get all the genes' accession no.,protein name that matched with our 10 unknown proteins from the blast file unksp_blastp_out.txt (based on sequence identity, length)
+ 
+#Because we need to find 10 unique genera for each unknown protein , we need to known how many unique genera for each protein. we could sort unique on genera column using specific delimiter (space, tab, [)
+# first sort to get unique genera for each unknown protein, take UnkSp1_2 as example, sort first column, we are able to find 238
+unique genera, then we sort based on the 15th column the sequence identity value, take the top 10 matches with head command
+# we print out four columns: pident, genera, unksp_ID and accession No. with tab separated
+cat unksp_blasp_out.txt | grep "UnkSp1_2" | awk -F"[" '{print $2}' |sort -k1,1 -u  | awk -F"\t"  '{print $15"\t"$1"\t"$2"\t"$3}' |sort -rnk1 |head
+ 
+then we can do it in a loop
+ 
+cat >markter2.txt #choose 10 unknown proteins  from UnkSp1_2 to UnkSp1_11, because UnkSp1_1 is too short to have any matches
+UnkSp1_2
+UnkSp1_3
+UnkSp1_4
+UnkSp1_5
+UnkSp1_6
+UnkSp1_7
+UnkSp1_8
+UnkSp1_9
+UnkSp1_10
+UnkSp1_11
+
+#to find more genera that contain most of the identified 10 proteins, we finally take the top 20 matches based on sequence identity
+cat markter2.txt | while read  unksp ; do  grep "$unksp" unksp_blasp_out.txt | awk -F"[" '{print $2}' | sort -k1,1 -u  | awk -F"\t"  '{print $15"\t"$1"\t"$2"\t"$3}' |sort -rnk1 |head -n 20 ; done >200_nearest_ID
+cat 200_nearest_ID  |awk -F"\t" '{print $4}' | while read ID; do grep  "$ID" -m 1 -A 1 single.mitofull.faa ; done >200_nearest_proteins.txt
+
+#based on the number of unknown proteins contained in each genera of the 200 nearest proteins, we are able to find 10 genera that contains at least 7 of the proteins
+grep ">" 200_nearest_proteins.txt |awk -F"["  '{print $2,$1}'  |awk '{print $1}' |  sort | uniq -c | awk '$1>=7{print $2}' > 10_genera.txt
+ 
+ #Thus, the 10 genera could be regarded as  its nearest neighbor , we could find all 10 proteins from the species-sorted blast results.
+ cat markter2.txt | while read  unksp ; do  grep "$unksp" unksp_blasp_out.txt | awk -F"[" '{print $2}' | sort -k1,1 -u  | awk -F"\t"  '{print $15"\t"$1"\t"$2"\t"$3}' |sort -rnk1 ; done > total_sort_uniq_spe_match
+ # In this way, we are able to get the 10 proteins acession number (from unksp1_2 to unksp1_11)  for each of the 10 genera.
+ 
+cat 10_genera.txt | while read genus ; do grep -w "$genus" total_sort_uniq_spe_match ; done >10_genera_proteins_IDs.txt
+ # then we could find the protein sequences for the output, the protein order is the same for each genera
+ cat 10_genera_proteins_IDs | awk -F"\t" '{print $4}' | while read ID; do grep  "$ID" -m 1 -A 1 single.mitofull.faa ; done  >10_genera_proteins.txt
+ 
+
+# grep 10 unknown proteins identified before
+# before merged with our 10 unknown proteins we need also convert our 10 unknown proteins to single aligment
+ bash  /home/chen0012/scratch/bacteria/Convert_to_Single.sh  Q1_protein.faa >single.Q1_protein.faa
+ cat markter2.txt | while read gene; do grep "$gene" -m1 -A 1 single.Q1_protein.faa ; done >Unknown_species.txt
+
+# we can concatenated them separately for the  10 genus one unknown organism
+  cat 10_genera.txt | while read genus; do grep -A 1 "$genus" 10_genera_proteins.txt >$genus.txt ; done
+ # then we concatenate all the proteins sequences for each genus, take unknown organism as example (merge all the 10 protein sequences into a long sequence)
+ 
+ grep -v "^>" Unknown_species.txt | awk 'BEGIN {ORS =""; print ">Unknown_species\n" } {print }' |head
+
+ #we can do it in a for loop for the 11 organisms including unknown,  nano genera file add an Unknown_species 
+  cat 10_genera.txt | while read genus; do  grep -v "^>" $genus.txt  | awk 'BEGIN {ORS =""; print ">"$genus"\n" } {print }' >$genus.new; done
+  
+ #assign speices name with the file name ($genus)
+ ls  *.new |sed -e 's/.new//' | while read genus; do cat $genus.new | sed -e "s/>/\n>$genus/g" ; done |sed -e '1d' >final_organism_sequence.faa
+ 
+
+#aligment of those organisms 
+/export/apps/tree/muscle -in final_organism_sequence.faa -out final_organism_sequence.faa.alignment
+# convert to single alignment 
+   bash  /home/chen0012/scratch/bacteria/Convert_to_Single.sh  final_organism_sequence.faa.alignment >single.final_organism.alignment
+#building the tree file
+/share/apps/tree/fasttree  single.final_organism.alignment  >organism_tree_file
+ 
+ #send the organism_tree_file to Tree viewer TreeDyn
+ 
+ #Based on the genus tree ,we can conclude that those unknown proteins are from the genera canis 
+ 
+  
+  
+  
