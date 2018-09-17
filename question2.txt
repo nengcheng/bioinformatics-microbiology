@@ -1,0 +1,111 @@
+#Question2: This file contains contigs obtained from a community genome survey. Identify protein-coding genes for each contig,
+ and using this information, implement a strategy to identify the most probable source organism for each contig. Identify contigs 
+that contain the following genes: DNA polymerase I, Cytochrome oxidase, RNA polymerase, Ribulose carboxylase, Pyruvate dehydrogenase. In your report, outline your approach, and share your code, and the final output (contig and organism, presence/absence of the genes listed). 
+
+#predict the genes for question2
+/home/chen0012/programs/prodigal/prodigal -p meta  -i Question2.fna -a Q2_protein.faa -d Q2.ffn -o Q2.gff -f gff
+
+ #blast against the kegg database using the identifie proteins from contigs
+ /home/chen0012/programs/ncbi-blast-2.7.1+/bin/blastp -num_threads 8 -query Q2_protein.faa -db /export/cerebro/KEGG/GenomeDB.faa -out Q2_blastp_out.txt -evalue 1e-10 -outfmt '6 salltitles qseqid sseqid qlen slen length nident positive mismatch gaps pident bitscore evalue' 
+ 
+#print out  protein name information, contig, taxi id, pident,  those 4 columns are tab separated 
+cat  Q2_blastp_out.txt  | sed -r 's/\S+//1; s/^ *//' |awk -F"\t" '{print $1"\t"$2"\t"$11"\t"$3}'|awk -F":" '{print $1}' >name_contig_pdent_id.txt
+# use those information to get the complete species name ,for file Taxonomy.id, they are also tab seperated
+
+
+#remove the lines with missing values and sort based on the taxonomy id  
+cat name_contig_pdent_id.txt |awk -F"\t" '$1!=""&&$2!=""&&$3!=""' |sort -t $'\t' -k3,3 | awk -F"\t" '{print $3"\t"$2"\t"$4"\t"$1}' >ident_contig_taxa_protein.txt
+
+# do it in a loop, need to add "_" in case of the mix of 1 and 11
+ grep '>' Question2.fna |sed -r 's/>//g' | awk '{print $1"_"}' >34_contigs
+
+# remove those matches whose ident value is less than 65, this is necessary because some matches with low identity will significantly
+#affect our prediction accuracy. The reason why we set 65 is that if we set a value over 70, some contigs has no matches, like contig24, but this will also cause some bias for some contigs with high sequence identity with many species(like contig9 and 10). so, we need to make a balance if we want to do it together. 
+cat ident_contig_taxa_protein.txt  | awk '($1 >=65)'  >cleaned_ident_contig_taxa_protein.txt
+
+
+ #then we can do it in a while loop, grep the contig and count the total number of matched species, the first would be most probable speices for the contig
+  cat 34_contigs | while read contig; do grep "$contig" cleaned_ident_contig_taxa_protein.txt | awk -F"\t" '{print $3}' | sort |uniq -c | awk '{print $1, $2}' | sort -nrk1 |head -n 1 |tr "\n" "\t"; echo $contig; done | sed -r 's/\_//; s/\S+//1; s/^ *//' >organism_contig.txt
+  
+ #then we can get the full spcies name from the taxonomy.id file
+cat organism_contig.txt |while read id contig; do grep -w "$id" /export/cerebro/KEGG/Taxonomy.id| awk -F"\t" '{print $4}' | tr "\n" "\t"; echo $contig; done | awk -F"\t" '{print $2"\t"$1}' > contig_species.txt
+#the output table: 
+Contig1 Moraxella bovoculi
+Contig2 Corynebacterium casei
+Contig3 Moraxella ovis
+Contig4 Corynebacterium casei
+Contig5 Corynebacterium casei
+Contig6 Treponema succinifaciens
+Contig7 Moraxella ovis
+Contig8 Treponema succinifaciens
+Contig9 Medicago truncatula (barrel medic)
+Contig10        Medicago truncatula (barrel medic)
+Contig11        Moraxella bovoculi
+Contig12        Treponema brennaborense
+Contig13        Moraxella ovis
+Contig14        Treponema succinifaciens
+Contig15        Treponema succinifaciens
+Contig16        Corynebacterium casei
+Contig17        Treponema brennaborense
+Contig18        Moraxella ovis
+Contig19        Treponema sp. OMZ 838
+Contig20        Moraxella osloensis
+Contig21        Corynebacterium casei
+Contig22        Moraxella bovoculi
+Contig23        Corynebacterium casei
+Contig24        Treponema succinifaciens
+Contig25        Medicago truncatula (barrel medic)
+Contig26        Corynebacterium casei
+Contig27        Medicago truncatula (barrel medic)
+Contig28        Treponema brennaborense
+Contig29        Corynebacterium casei
+Contig30        Moraxella ovis
+Contig31        Corynebacterium stationis
+Contig32        Corynebacterium casei
+Contig33        Treponema brennaborense
+Contig34        Moraxella bovoculi
+
+
+# search the five protein from the blast file
+ grep 'RNA polymerase' name_contig_pdent_id.txt |awk -F"\t" '{print $2"\t""RNA_polymerase_presence"}' |sed -r 's/\_[0-9]*//' |sort -u >protein1.txt
+ grep 'DNA polymerase I' name_contig_pdent_id.txt |awk -F"\t" '{print $2"\t""DNA_polymeraseI_presence"}' |sed -r 's/\_[0-9]*//' |sort -u >protein2.txt
+ grep 'Pyruvate dehydrogenase' name_contig_pdent_id.txt |awk -F"\t" '{print $2"\t""Pyruvate_dehydrogenase_presence"}' |sed -r 's/\_[0-9]*//' |sort -u >protein3.txt
+
+ 
+ #cat protein1,2,3 file, results:
+Contig10        RNA_polymerase_presence
+Contig11        RNA_polymerase_presence
+Contig12        RNA_polymerase_presence
+Contig18        RNA_polymerase_presence
+Contig21        RNA_polymerase_presence
+Contig22        RNA_polymerase_presence
+Contig23        RNA_polymerase_presence
+Contig25        RNA_polymerase_presence
+Contig27        RNA_polymerase_presence
+Contig30        RNA_polymerase_presence
+Contig32        RNA_polymerase_presence
+Contig34        RNA_polymerase_presence
+Contig7 	    RNA_polymerase_presence
+Contig9 	    RNA_polymerase_presence
+
+Contig12        DNA_polymeraseI_presence
+Contig13        DNA_polymeraseI_presence
+Contig16        DNA_polymeraseI_presence
+Contig17        DNA_polymeraseI_presence
+Contig18        DNA_polymeraseI_presence
+Contig19        DNA_polymeraseI_presence
+Contig1 		DNA_polymeraseI_presence
+Contig22        DNA_polymeraseI_presence
+Contig23        DNA_polymeraseI_presence
+Contig33        DNA_polymeraseI_presence
+Contig5 		DNA_polymeraseI_presence
+
+Contig1 		Pyruvate_dehydrogenase_presence
+Contig23        Pyruvate_dehydrogenase_presence
+ 
+ #nothing found for Cytochrome oxidase and Cytochrome oxidase
+ grep 'Ribulose carboxylase' name_contig_pdent_id.txt | head 
+ grep 'Cytochrome oxidase' name_contig_pdent_id.txt |head 
+ 
+ 
+ 
